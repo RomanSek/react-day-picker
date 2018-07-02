@@ -7,6 +7,13 @@ import Helmet from 'react-helmet';
 import DayPicker, { DateUtils } from 'react-day-picker';
 import 'react-day-picker/lib/style.css';
 
+const getDate = date =>
+  moment(date)
+    .hours(12)
+    .minutes(0)
+    .seconds(0)
+    .milliseconds(0);
+
 const quickSelectButtons = [
   {
     label: 'today',
@@ -66,39 +73,79 @@ const quickSelectButtons = [
   },
 ];
 
-export default class Example extends React.Component {
-  constructor(props) {
-    super(props);
-    this.handleDayClick = this.handleDayClick.bind(this);
-    this.handleDayMouseEnter = this.handleDayMouseEnter.bind(this);
-    this.state = this.getInitialState();
-  }
-  getInitialState() {
+export default class CalendarRangePicker extends React.Component {
+  static getDerivedStateFromPropsX(props) {
+    const { min, max, from, to } = props;
+    const [mMin, mMax] = [min, max].map(date => (date ? getDate(date) : date));
+    let [mFrom, mTo] = [from, to].map(getDate);
+
+    if (mMin) {
+      mFrom = moment.max(mFrom, mMin);
+    }
+
+    if (mMax) {
+      mTo = moment.min(mTo, mMax);
+    }
+
+    const firstCalendarMonth = mFrom;
+    const secondCalendarMonth = CalendarRangePicker.getSecondCalendarMonth(
+      mTo,
+      firstCalendarMonth
+    );
+
     return {
-      from: null,
-      to: null,
-      enteredTo: null, // Keep track of the last day for mouseEnter.
-      startMonth: null,
-      endMonth: null,
+      min: mMin.toDate(),
+      max: mMax.toDate(),
+      from: mFrom.toDate(),
+      to: mTo.toDate(),
+      firstCalendarMonth: firstCalendarMonth.toDate(),
+      secondCalendarMonth,
+      enteredTo: mTo.toDate(),
     };
   }
-  isSelectingFirstDay(from, to, day) {
+
+  static isSelectingFirstDay(from, to, day) {
     const isBeforeFirstDay = from && DateUtils.isDayBefore(day, from);
     const isRangeSelected = from && to;
     return !from || isBeforeFirstDay || isRangeSelected;
   }
+
+  /**
+   * Calculates month used by second calendar
+   * @param {moment.Moment} to End of date range
+   * @param {moment.Moment|Date} firstCalendarMonth Month used by first calendar
+   * @return {Date} Second calendar month
+   */
+  static getSecondCalendarMonth(to, firstCalendarMonth) {
+    return moment.max(to, moment(firstCalendarMonth).add(1, 'month')).toDate();
+  }
+
+  constructor(props) {
+    super(props);
+    this.state = CalendarRangePicker.getDerivedStateFromPropsX(props);
+  }
+
   isValid = day => {
-    const { min, max } = this.props;
+    const { min, max } = this.state;
     const overMinimum = !min || day >= min;
     const underMaximum = !max || day <= max;
 
     return overMinimum && underMaximum;
   };
-  handleDayClick(day) {
+
+  handleDayClick = day => {
+    console.log({
+      isValid: this.isValid(day),
+      day,
+    });
     if (this.isValid(day)) {
       const { from, to } = this.state;
 
-      if (this.isSelectingFirstDay(from, to, day)) {
+      console.log({
+        from,
+        to,
+      });
+      if (CalendarRangePicker.isSelectingFirstDay(from, to, day)) {
         this.setState({
           from: day,
           to: null,
@@ -108,20 +155,28 @@ export default class Example extends React.Component {
         this.setState({
           to: day,
           enteredTo: day,
-          startMonth: from,
-          endMonth: day,
+          firstCalendarMonth: from,
+          secondCalendarMonth: CalendarRangePicker.getSecondCalendarMonth(
+            moment(day),
+            from
+          ),
         });
       }
     }
-  }
-  handleDayMouseEnter(day) {
+  };
+
+  handleDayMouseEnter = day => {
     const { from, to } = this.state;
-    if (!this.isSelectingFirstDay(from, to, day) && this.isValid(day)) {
+    if (
+      !CalendarRangePicker.isSelectingFirstDay(from, to, day) &&
+      this.isValid(day)
+    ) {
       this.setState({
         enteredTo: day,
       });
     }
-  }
+  };
+
   selectRange = (from, to) => {
     const { min, max } = this.props;
     const validFrom = (min ? moment.max(from, moment(min)) : from).toDate();
@@ -131,19 +186,36 @@ export default class Example extends React.Component {
       from: validFrom,
       to: validTo,
       enteredTo: validTo,
-      startMonth: validFrom,
-      endMonth: validTo,
+      firstCalendarMonth: validFrom,
+      secondCalendarMonth: CalendarRangePicker.getSecondCalendarMonth(
+        moment(validTo),
+        validFrom
+      ),
     });
   };
+
   render() {
-    const { min, max } = this.props;
-    const { from, to, enteredTo, startMonth, endMonth } = this.state;
+    const {
+      min,
+      max,
+      from,
+      to,
+      enteredTo,
+      firstCalendarMonth,
+      secondCalendarMonth,
+    } = this.state;
     const modifiers = { start: from, end: to };
     const disabledDays = {
       after: max,
       before: min,
     };
     const selectedDays = [from, { from, to: enteredTo }];
+    const firstCalendarToLimit = moment(secondCalendarMonth)
+      .subtract(1, 'month')
+      .toDate();
+    const secondCalendarFromLimit = moment(firstCalendarMonth)
+      .add(1, 'month')
+      .toDate();
     const sharedProps = {
       className: 'Range',
       selectedDays,
@@ -152,22 +224,28 @@ export default class Example extends React.Component {
       onDayClick: this.handleDayClick,
       onDayMouseEnter: this.handleDayMouseEnter,
       firstDayOfWeek: 1,
+      showOutsideDays: true,
     };
+
     return (
       <div>
         <DayPicker
           {...sharedProps}
+          fromMonth={min}
+          toMonth={firstCalendarToLimit}
           onMonthChange={month => {
-            this.setState({ startMonth: month });
+            this.setState({ firstCalendarMonth: month });
           }}
-          month={startMonth}
+          month={firstCalendarMonth}
         />
         <DayPicker
           {...sharedProps}
+          fromMonth={secondCalendarFromLimit}
+          toMonth={max}
           onMonthChange={month => {
-            this.setState({ endMonth: month });
+            this.setState({ secondCalendarMonth: month });
           }}
-          month={endMonth}
+          month={secondCalendarMonth}
         />
         <div style={{ display: 'inline-block' }}>
           {quickSelectButtons.map(({ label, getRange }) => (
@@ -198,20 +276,18 @@ export default class Example extends React.Component {
   }
 }
 
-Example.propTypes = {
+CalendarRangePicker.propTypes = {
   from: PropTypes.instanceOf(Date),
   to: PropTypes.instanceOf(Date),
   min: PropTypes.instanceOf(Date),
   max: PropTypes.instanceOf(Date),
 };
 
-Example.defaultProps = {
+CalendarRangePicker.defaultProps = {
   // min: null,
   // max: null,
-  min: moment('2018-05-06')
-    .hours(12)
-    .toDate(),
-  max: moment('2018-08-08')
-    .hours(12)
-    .toDate(),
+  min: new Date('2018-05-06'),
+  max: new Date('2018-08-08'),
+  from: new Date('2018-08-05'),
+  to: new Date('2018-08-07'),
 };
